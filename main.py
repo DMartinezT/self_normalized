@@ -38,6 +38,7 @@ class KernelizedUCB:
         self.eb = UnivariateEmpiricalBernsteinRadius(max_rounds=max_total_number_points, B=noise_bound, alpha=delta/2, c1=0.5, c2=0.25)
         
     def fit(self, X, y, n_new_points):
+
         if self.y is not None:
             K_s = self.kernel(X[-n_new_points], self.X)
             mu = K_s @ self.K_inv @ self.y
@@ -57,21 +58,14 @@ class KernelizedUCB:
         self.beta_det = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_det
 
         K_new_points = self.kernel(X[-n_new_points:], X)
-        alpha_t = np.sum(K_new_points**2, axis=1)
-        f_t2 = np.diag( self.kernel(X[-n_new_points:], X[-n_new_points:]) )
-        g_t2 = f_t2 / (self.rho + alpha_t / f_t2)
+        K_only_new_points = self.kernel(X[-n_new_points:], X[-n_new_points:])
+        g_t2 = (1/self.rho)* (K_only_new_points - K_new_points @ self.K_inv @ K_new_points.T )
         g_t2 = np.sum(g_t2)
         self.sum_gt2 += g_t2
         self.beta1_pinelis = self.gamma_poisson_mixture_bound(v=self.sum_gt2*self.noise_variance, 
                                                               rho=self.rho_mixture, c=self.noise_bound*self.kernel_bound/(self.rho+self.kernel_bound), 
                                                               l0=2, delta=self.delta)
         
-        
-
-
-        # print(f"pinelis beta1: {beta1}")
-        # print(f"f_t2: {f_t2}")
-        # print(f"g_t2: {self.sum_gt2}")
         self.beta_pinelis = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis
 
 
@@ -107,7 +101,7 @@ class KernelizedUCB:
         plt.legend()
         # plt.show()
         # Save the plot to a file (optional)
-        plt.savefig("../plots/plot.png", dpi=300)     
+        plt.savefig("../plots/visualize_selection.png", dpi=300)     
 
     
     def visualize_variance(self, X, true_regression_function = None):
@@ -168,11 +162,6 @@ def plot_function(function, xmin, ymin, num_points=100):
 
 
 
-    
-    
-
-
-
 
 # Example usage
 if __name__ == "__main__":
@@ -186,7 +175,7 @@ if __name__ == "__main__":
     rho_mixture = .01 * radius_noise**2
     delta = 0.1
     noise_type = "beta"
-    max_rounds = 1000
+    max_rounds = 5000
     initial_number_of_points = 1
     
 
