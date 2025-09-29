@@ -6,18 +6,22 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from utils import NoiseSampler, UnivariateEmpiricalBernsteinRadius
+from ebub import EBUB
 
 
 
 
 class KernelizedUCB:
-    def __init__(self, noise_subgaussian_parameter, noise_bound, noise_variance, kernel, kernel_bound, regression_function_bound, delta=0.05, rho=1.0, rho_mixture=1, max_total_number_points=1000):
+    def __init__(self, noise_subgaussian_parameter, noise_bound, noise_variance, kernel, kernel_bound, regression_function_bound, delta=0.05, rho=1.0, rho_mixture=1, max_total_number_points=1000,
+                 noise_type="uniform"):
         self.kernel = kernel
         self.kernel_bound = kernel_bound
         self.regression_function_bound = regression_function_bound
         self.noise_subgaussian_parameter = noise_subgaussian_parameter
         self.noise_variance = noise_variance
         self.delta = delta
+        self.delta1 = delta / 2
+        self.delta2 = delta / 2
         self.rho = rho
         self.rho_mixture = rho_mixture
         self.beta_det = None
@@ -26,6 +30,7 @@ class KernelizedUCB:
         self.beta1_pinelis = None
         self.beta_empirical_pinelis = None
         self.beta1_empirical_pinelis = None
+        self.noise_type = noise_type
 
         self.sum_gt2 = 0
         self.gt2_det = None
@@ -35,8 +40,10 @@ class KernelizedUCB:
         self.K_inv = None
         self.noise_bound = noise_bound
 
-        self.eb = UnivariateEmpiricalBernsteinRadius(max_rounds=max_total_number_points, B=noise_bound, alpha=delta/2, c1=0.5, c2=0.25)
-        
+        #self.eb = UnivariateEmpiricalBernsteinRadius(max_rounds=max_total_number_points, B=noise_bound, alpha=delta/2, c1=0.5, c2=0.25)
+        self.eb = EBUB(max_rounds=max_total_number_points, alpha = self.delta1, c1 = 0.5, c2 = 0.25**2, c3=0.25, c4=0.5, CS=False)
+
+
     def fit(self, X, y, n_new_points):
 
         if self.y is not None:
@@ -45,8 +52,10 @@ class KernelizedUCB:
         else:
             mu = np.zeros(y[-n_new_points:].shape)
             
-        empirical_variance = self.eb((y[-n_new_points:] - mu)**2)
-        print("Empirical variance: ", empirical_variance)
+        #empirical_variance = self.eb((y[-n_new_points:] - mu)**2)
+        for yy, m in zip(y[-n_new_points:], mu):
+            self.eb(yy, m)
+        
 
         self.X = X
         self.y = y
@@ -80,28 +89,49 @@ class KernelizedUCB:
         mu, sigma = self.predict(X)
         ucb_values = mu + self.beta_pinelis * sigma
         return np.argmax(ucb_values)
-        
-    def visualize_selection(self, X, true_regression_function = None):
+
+    def visualize_selection(self, X, true_regression_function = None, ax_index = None, ax=None):
         mu, sigma = self.predict(X)
         ucb_values_det = mu + self.beta_det * sigma
         ucb_values_pinelis = mu + self.beta_pinelis * sigma
 
-        plt.figure(figsize=(10, 6))
-        plt.plot(X, mu, 'r', label='Mean')
-        plt.fill_between(X.ravel(), mu - self.beta_det * sigma, mu + self.beta_det * sigma, alpha=0.2, label='Confidence Interval sub-Gaussian')
-        plt.plot(X, ucb_values_det, 'g', label='UCB Values sub-Gaussian')
-        plt.plot(X, ucb_values_pinelis, 'orange', label='UCB Values Pinelis')
-        plt.scatter(self.X, self.y, c='b', label='Training Points')
-        if true_regression_function is not None:
-            plt.plot(X, true_regression_function(X), 'k', label='True Function')
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(10, 6))
+        
+        #plt.fill_between(X.ravel(), mu - self.beta_det * sigma, mu + self.beta_det * sigma, alpha=0.2, label='Confidence Interval sub-Gaussian')
+        ax.plot(X, ucb_values_det, 'g', label='Sub-Gaussian')
+        ax.plot(X, ucb_values_pinelis, 'orange', label='Mixed Bennett')
 
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.title('UCB Selection Process')
-        plt.legend()
+
+        empirical_variance = self.eb.get_center_plus_radius()
+        print("Empirical variance: ", empirical_variance)
+        self.beta1_pinelis_empirical = self.gamma_poisson_mixture_bound(v=self.sum_gt2*self.noise_variance, 
+                                                              rho=self.rho_mixture, c=self.noise_bound*self.kernel_bound/(self.rho+self.kernel_bound), 
+                                                              l0=2, delta=self.delta2)
+        
+        self.beta_pinelis_empirical = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis_empirical
+        ucb_values_pinelis_empirical = mu + self.beta_pinelis_empirical * sigma
+        ax.plot(X, ucb_values_pinelis_empirical, 'purple', label='Empirical Mixed Bennett')
+
+        ax.scatter(self.X, self.y, c='b', label='Training Points')
+        ax.plot(X, mu, 'r', label='Estimated mean')
+        if true_regression_function is not None:
+            ax.plot(X, true_regression_function(X), 'k', label='True regression function')
+
+        ax.set_xlabel(r'$\tilde{X}$')
+        ax.set_ylabel('Y')
+        
+        axis_to_title = ["(I)", "(II)", "(III)", "(IV)"]
+        plot_title = axis_to_title[ax_index-1]
+        ax.set_title(plot_title if plot_title is not None else 'UCB Selection')
+
+        #if ax_index == 1:
+        ax.legend(loc="upper center")
         # plt.show()
         # Save the plot to a file (optional)
-        plt.savefig("../plots/visualize_selection.png", dpi=300)     
+        if ax is None:  
+            plt.savefig(f"../plots/visualize_selection_{self.noise_type}_{self.noise_bound}.png", dpi=300)
+        
 
     
     def visualize_variance(self, X, true_regression_function = None):
@@ -115,7 +145,7 @@ class KernelizedUCB:
         if true_regression_function is not None:
             plt.plot(X, true_regression_function(X), 'k', label='True Function')
 
-        plt.xlabel('X')
+        plt.xlabel(r'$\tilde{X}$')
         plt.ylabel('Y')
         plt.title('Sigma')
         plt.legend()
@@ -171,76 +201,90 @@ if __name__ == "__main__":
     kernel_bound = 1
     D = 5
     rho = .05
-    radius_noise = 1
-    rho_mixture = .01 * radius_noise**2
+    radius_noise_list = [1]
     delta = 0.1
-    noise_type = "beta"
-    max_rounds = 5000
+    noise_type_list = ["beta", "uniform"]
+    max_rounds = 500
     initial_number_of_points = 1
+
+    fig, axes = plt.subplots(len(noise_type_list), len(radius_noise_list), figsize=(14, 10))  # 2x2 grid
+    axes = axes.flatten()  # flatten to a 1D array for easy indexing
+
+    ax_index = 0
+    for noise_type in noise_type_list:
+        for radius_noise in radius_noise_list:
+            ax = axes[ax_index]
+            ax_index += 1
+
+            print(f"Noise type: {noise_type}, Noise radius: {radius_noise}")
+
+            rho_mixture = .01 * radius_noise**2
     
 
 
-    if noise_type == "uniform":
-        noise_sampler = NoiseSampler(type_="uniform", radius=radius_noise)
-    elif noise_type == "beta":
-        a = 50
-        b = 50
-        noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
+            if noise_type == "uniform":
+                noise_sampler = NoiseSampler(type_="uniform", radius=radius_noise)
+            elif noise_type == "beta":
+                a = 50
+                b = 50
+                noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
+                
         
-   
-    noise_subgaussian_parameter = radius_noise**2/4
-    noise_variance = noise_sampler.get_variance()
-    ucb = KernelizedUCB(noise_subgaussian_parameter=noise_subgaussian_parameter, noise_bound=radius_noise, noise_variance=noise_variance, 
-                        kernel=kernel, kernel_bound=kernel_bound, regression_function_bound=D, rho=rho, delta=delta, rho_mixture=rho_mixture, 
-                        max_total_number_points=max_rounds+initial_number_of_points)
+            noise_subgaussian_parameter = radius_noise**2/4
+            noise_variance = noise_sampler.get_variance()
+            ucb = KernelizedUCB(noise_subgaussian_parameter=noise_subgaussian_parameter, noise_bound=radius_noise, noise_variance=noise_variance, 
+                                kernel=kernel, kernel_bound=kernel_bound, regression_function_bound=D, rho=rho, delta=delta, rho_mixture=rho_mixture, 
+                                max_total_number_points=max_rounds+initial_number_of_points, noise_type=noise_type)
 
-    n_fixed_points = 50
-    fixed_points = np.vstack((np.random.rand(n_fixed_points // 2 - 2, 1) / 10 + 0.1, np.random.rand(n_fixed_points // 2 + 2, 1) / 10 + 0.8))
-    weights = np.random.randn(n_fixed_points) 
-    weights = np.ones(n_fixed_points)
-    weights *= D / np.sum(weights)
+            n_fixed_points = 50
+            fixed_points = np.vstack((np.random.rand(n_fixed_points // 2 - 2, 1) / 10 + 0.1, np.random.rand(n_fixed_points // 2 + 2, 1) / 10 + 0.8))
+            weights = np.random.randn(n_fixed_points) 
+            weights = np.ones(n_fixed_points)
+            weights *= D / np.sum(weights)
 
-    # Generate some sample data
-    X_train = np.random.rand(initial_number_of_points, 1)
-    true_regression_function = lambda x: np.sum(weights * kernel(x, fixed_points), axis=1)
-    y_train = true_regression_function(X_train) + noise_sampler(size=initial_number_of_points)
-    # Fit the model with the updated data
-    ucb.fit(X_train, y_train, n_new_points=initial_number_of_points)
+            # Generate some sample data
+            X_train = np.random.rand(initial_number_of_points, 1)
+            true_regression_function = lambda x: np.sum(weights * kernel(x, fixed_points), axis=1)
+            y_train = true_regression_function(X_train) + noise_sampler(size=initial_number_of_points)
+            # Fit the model with the updated data
+            ucb.fit(X_train, y_train, n_new_points=initial_number_of_points)
 
-    # plot_function(true_regression_function, 0, 1)
-    # y_train = np.sin(2 * np.pi * X_train).ravel() + np.random.randn(10) * 0.1
-    
-    
-    for _ in tqdm(range(max_rounds)):
+            # plot_function(true_regression_function, 0, 1)
+            # y_train = np.sin(2 * np.pi * X_train).ravel() + np.random.randn(10) * 0.1
+            
+            
+            for _ in tqdm(range(max_rounds)):
 
-        # Generate some test data
-        X_test = np.linspace(0, 1, 100).reshape(-1, 1)
-        action = ucb.select_action(X_test)
+                # Generate some test data
+                X_test = np.linspace(0, 1, 100).reshape(-1, 1)
+                action = ucb.select_action(X_test)
 
-        # print(f"Round {_ + 1}: Selected action: {action}")
+                # print(f"Round {_ + 1}: Selected action: {action}")
 
-        # Generate a new sample point
-        X_new = X_test[action].reshape(1, 1)
-        y_new = true_regression_function(X_new) + noise_sampler(size=1)
+                # Generate a new sample point
+                X_new = X_test[action].reshape(1, 1)
+                y_new = true_regression_function(X_new) + noise_sampler(size=1)
 
-        # Update the training data
-        X_train = np.vstack((X_train, X_new))
-        y_train = np.append(y_train, y_new)
+                # Update the training data
+                X_train = np.vstack((X_train, X_new))
+                y_train = np.append(y_train, y_new)
 
-        # Fit the model with the updated data
-        ucb.fit(X_train, y_train, n_new_points=1)
+                # Fit the model with the updated data
+                ucb.fit(X_train, y_train, n_new_points=1)
 
-    ucb.visualize_selection(X_test, true_regression_function)
-    # ucb.visualize_variance(X_test, true_regression_function)
+            ucb.visualize_selection(X_test, true_regression_function, ax_index=ax_index, ax=ax) #f"{noise_type} noise with bound {radius_noise}"
+            # ucb.visualize_variance(X_test, true_regression_function)
 
-    print(f"pinelis beta1: {ucb.beta1_pinelis}")
-    print(f"det beta1: {ucb.beta1_det}")
-    print(f"pinelis sum_gt2: {ucb.sum_gt2*ucb.noise_variance*np.log(2/delta)}")
-    print(f"det sum_gt2: {ucb.noise_subgaussian_parameter**2*ucb.gt2_det}")
+            print(f"pinelis beta1: {ucb.beta1_pinelis}")
+            print(f"det beta1: {ucb.beta1_det}")
+            print(f"pinelis sum_gt2: {ucb.sum_gt2*ucb.noise_variance*np.log(2/delta)}")
+            print(f"det sum_gt2: {ucb.noise_subgaussian_parameter**2*ucb.gt2_det}")
 
 
-    print(f"Noise variance: {noise_variance}")
-    print(f"Noise subgaussian parameter: {noise_subgaussian_parameter}")
+            print(f"Noise variance: {noise_variance}")
+            print(f"Noise subgaussian parameter: {noise_subgaussian_parameter}")
+    #plt.tight_layout()
+    plt.savefig(f"../plots/visualize_selection_all.png", dpi=300, bbox_inches='tight')
 
     
 
