@@ -71,11 +71,11 @@ class KernelizedUCB:
         g_t2 = (1/self.rho)* (K_only_new_points - K_new_points @ self.K_inv @ K_new_points.T )
         g_t2 = np.sum(g_t2)
         self.sum_gt2 += g_t2
-        self.beta1_pinelis = self.gamma_poisson_mixture_bound(v=self.sum_gt2*self.noise_variance, 
-                                                              rho=self.rho_mixture, c=self.noise_bound*self.kernel_bound/(self.rho+self.kernel_bound), 
-                                                              l0=2, delta=self.delta)
+        # self.beta1_pinelis = self.gamma_poisson_mixture_bound(v=self.sum_gt2*self.noise_variance, 
+        #                                                       rho=self.rho_mixture, c=self.noise_bound*self.kernel_bound/(self.rho+self.kernel_bound), 
+        #                                                       l0=2, delta=self.delta)
         
-        self.beta_pinelis = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis
+        # self.beta_pinelis = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis
 
 
     def predict(self, X):
@@ -87,12 +87,19 @@ class KernelizedUCB:
 
     def select_action(self, X):
         mu, sigma = self.predict(X)
-        ucb_values = mu + self.beta_pinelis * sigma
+        #ucb_values = mu + self.beta_pinelis * sigma
+        ucb_values = mu + self.beta_det * sigma
         return np.argmax(ucb_values)
 
     def visualize_selection(self, X, true_regression_function = None, ax_index = None, ax=None):
         mu, sigma = self.predict(X)
         ucb_values_det = mu + self.beta_det * sigma
+
+        self.beta1_pinelis = self.gamma_poisson_mixture_bound(v=self.sum_gt2*self.noise_variance, 
+                                                              rho=self.rho_mixture, c=self.noise_bound*self.kernel_bound/(self.rho+self.kernel_bound), 
+                                                              l0=2, delta=self.delta)
+        
+        self.beta_pinelis = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis
         ucb_values_pinelis = mu + self.beta_pinelis * sigma
 
         if ax is None:
@@ -201,13 +208,16 @@ if __name__ == "__main__":
     kernel_bound = 1
     D = 5
     rho = .05
-    radius_noise_list = [1]
+    radius_noise_list = [2]
     delta = 0.1
-    noise_type_list = ["beta", "uniform"]
+    noise_type_list = ["uniform", "beta55", "beta2020", "beta5050"] #uniform
     max_rounds = 500
     initial_number_of_points = 1
 
-    fig, axes = plt.subplots(len(noise_type_list), len(radius_noise_list), figsize=(14, 10))  # 2x2 grid
+    fig, axes = plt.subplots(len(noise_type_list), len(radius_noise_list), figsize=(14, 5) )  # (14, 10)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10) )  # (14, 5)
+    if len(noise_type_list) == 1:
+        axes = np.array([axes])  # make it 2D for consistency
     axes = axes.flatten()  # flatten to a 1D array for easy indexing
 
     ax_index = 0
@@ -219,12 +229,25 @@ if __name__ == "__main__":
             print(f"Noise type: {noise_type}, Noise radius: {radius_noise}")
 
             rho_mixture = .01 * radius_noise**2
+            rho_mixture = 1
     
 
 
             if noise_type == "uniform":
                 noise_sampler = NoiseSampler(type_="uniform", radius=radius_noise)
             elif noise_type == "beta":
+                a = 10
+                b = 10
+                noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
+            elif noise_type == "beta55":
+                a = 5
+                b = 5
+                noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
+            elif noise_type == "beta2020":
+                a = 20
+                b = 20
+                noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
+            elif noise_type == "beta5050":
                 a = 50
                 b = 50
                 noise_sampler = NoiseSampler(type_="beta", a=a, b=b, radius=radius_noise)
