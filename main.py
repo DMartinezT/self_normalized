@@ -102,6 +102,7 @@ class KernelizedUCB:
         self.beta_pinelis = np.sqrt(self.rho)*self.regression_function_bound + self.beta1_pinelis
         ucb_values_pinelis = mu + self.beta_pinelis * sigma
 
+
         if ax is None:
             fig, ax = plt.subplots(figsize=(10, 6))
         
@@ -124,6 +125,41 @@ class KernelizedUCB:
         ax.plot(X, mu, 'r', label='Estimated mean')
         if true_regression_function is not None:
             ax.plot(X, true_regression_function(X), 'k', label='True regression function')
+
+        # Uncomment for recent contributions
+        '''
+        self.metelli_first_part = np.sqrt(73 *np.log(np.linalg.det(self.kernel(X, X) / self.rho + np.eye(len(X)))) ) + np.sqrt(3)
+        rho_t = np.log (1 + (self.noise_bound ** 2) * self.kernel_bound**2 / (self.rho * self.noise_variance))
+        rho_t *= np.log(8 * (self.noise_bound ** 2) * self.kernel_bound**2 * (len(X)**3) / (self.rho * self.noise_variance))
+        rho_t = np.ceil(rho_t)
+        rho_t = np.max([0, rho_t])
+        self.metelli_first_part *= np.sqrt(np.log(np.pi**2 * (rho_t + 1)**2 / (3 * self.delta)))
+        self.metelli_second_part = (3*self.noise_bound*self.kernel_bound) / np.sqrt(self.rho * self.noise_variance)
+        self.metelli_second_part *= np.log(np.pi**2 * (rho_t + 1)**2 / (3 * self.delta))
+        self.metelli1_det = self.metelli_first_part + self.metelli_second_part
+        self.metelli1_det *= np.sqrt(self.noise_variance)
+        self.metelli_det = np.sqrt(self.rho)*self.regression_function_bound + self.metelli1_det
+        ucb_values_metelli = mu + self.metelli_det * sigma
+        ax.plot(X, ucb_values_metelli, color='pink', label='Metelli et al.')
+
+        rho_akhavan = self.noise_variance * self.rho
+        rho_akhavan = self.rho
+        gamma_akhavan = np.log(np.linalg.det(self.kernel(X, X) / rho_akhavan + np.eye(len(X)))) / 2
+        akhavan_first_part = np.sqrt(3*rho_akhavan)/2 + 2*np.sqrt(3)/np.sqrt(rho_akhavan)*(9*gamma_akhavan + np.log(2/delta)) 
+        akhavan_second_part = np.sqrt(6*(gamma_akhavan + np.log(2/delta)))
+        akhavan1_det = akhavan_first_part + akhavan_second_part
+        akhavan1_det *= np.sqrt(self.noise_variance)
+        akhavan_det = np.sqrt(self.rho)*self.regression_function_bound + akhavan1_det
+        ucb_values_akhavan = mu + akhavan_det * sigma
+        ax.plot(X, ucb_values_akhavan, 'c', label='Akhavan et al.')
+
+        print(f"gamma: {np.log(np.linalg.det(self.kernel(X, X) / self.rho + np.eye(len(X))))}")
+        print(f"sqrt gamma: {np.sqrt(np.log(np.linalg.det(self.kernel(X, X) / self.rho + np.eye(len(X))))) }")
+        print(f"gamma akhavan: {gamma_akhavan}")
+        print(f"noise bound: {self.noise_bound}")
+        '''
+
+
 
         ax.set_xlabel(r'$\tilde{X}$')
         ax.set_ylabel('Y')
